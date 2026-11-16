@@ -1,0 +1,521 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SHADOW QUEST</title>
+
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  overflow: hidden;
+  background: #101b19;
+  font-family: Arial, sans-serif;
+  touch-action: none;
+}
+canvas { display:block; }
+
+#hud {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  left: 12px;
+  display:flex;
+  justify-content:space-between;
+  color:white;
+  z-index:5;
+  pointer-events:none;
+}
+.panel {
+  background:rgba(8,20,18,.85);
+  border:1px solid #c5a45a;
+  border-radius:12px;
+  padding:10px 14px;
+  font-size:14px;
+}
+#message {
+  position:fixed;
+  top:85px;
+  left:50%;
+  transform:translateX(-50%);
+  color:#ffe5a0;
+  background:#14241fe8;
+  padding:12px 20px;
+  border-radius:12px;
+  z-index:5;
+  white-space:nowrap;
+  font-weight:bold;
+}
+#controls {
+  position:fixed;
+  bottom:22px;
+  left:20px;
+  right:20px;
+  display:flex;
+  justify-content:space-between;
+  align-items:end;
+  z-index:10;
+}
+.pad {
+  display:grid;
+  grid-template-columns:55px 55px 55px;
+  grid-template-rows:55px 55px;
+  gap:5px;
+}
+.ctrl {
+  width:55px;
+  height:55px;
+  border:1px solid #d4b36b;
+  border-radius:14px;
+  background:#152923dd;
+  color:white;
+  font-size:23px;
+  touch-action:none;
+  user-select:none;
+}
+.ctrl:active { background:#806a36; }
+#jump {
+  width:75px;
+  height:75px;
+  border-radius:50%;
+  background:#a17d35ed;
+  font-size:16px;
+  font-weight:bold;
+}
+#start {
+  position:fixed;
+  inset:0;
+  z-index:20;
+  background:linear-gradient(#071713e8,#071713f5);
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  align-items:center;
+  color:white;
+  text-align:center;
+  padding:25px;
+}
+#start h1 {
+  color:#e5c47b;
+  font-size:36px;
+  letter-spacing:2px;
+}
+#start button {
+  background:#c49b4c;
+  color:#101713;
+  border:0;
+  border-radius:12px;
+  padding:16px 40px;
+  font-size:19px;
+  font-weight:bold;
+}
+</style>
+</head>
+
+<body>
+
+<div id="hud">
+  <div class="panel">💎 البلورات: <span id="score">0</span>/5</div>
+  <div class="panel">🌲 المرحلة: <span id="level">1</span></div>
+</div>
+
+<div id="message">اجمع 5 بلورات لفتح البوابة</div>
+
+<div id="controls">
+  <div class="pad">
+    <div></div>
+    <button class="ctrl" data-key="forward">▲</button>
+    <div></div>
+    <button class="ctrl" data-key="left">◀</button>
+    <button class="ctrl" data-key="back">▼</button>
+    <button class="ctrl" data-key="right">▶</button>
+  </div>
+  <button class="ctrl" id="jump">قفز</button>
+</div>
+
+<div id="start">
+  <h1>SHADOW QUEST</h1>
+  <p>رحلتك تبدأ من الغابة المفقودة</p>
+  <p>اجمع البلورات وافتح البوابة السحرية!</p>
+  <br>
+  <button id="play">ابدأ المغامرة</button>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+
+// إعداد العالم
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x91b9a5);
+scene.fog = new THREE.Fog(0x91b9a5, 25, 85);
+
+const camera = new THREE.PerspectiveCamera(
+  65, window.innerWidth/window.innerHeight, 0.1, 150
+);
+
+const renderer = new THREE.WebGLRenderer({
+  antialias:true
+});
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+
+// الإضاءة
+scene.add(new THREE.HemisphereLight(0xc8e6ff,0x29402a,2));
+
+const sun = new THREE.DirectionalLight(0xffe2a8,3);
+sun.position.set(-15,25,12);
+sun.castShadow = true;
+scene.add(sun);
+
+// الأرض
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(110,110),
+  new THREE.MeshStandardMaterial({
+    color:0x426e42,
+    roughness:1
+  })
+);
+ground.rotation.x=-Math.PI/2;
+ground.receiveShadow=true;
+scene.add(ground);
+
+// مسار ترابي
+const path = new THREE.Mesh(
+  new THREE.PlaneGeometry(9,100),
+  new THREE.MeshStandardMaterial({color:0x927b51})
+);
+path.rotation.x=-Math.PI/2;
+path.position.set(0,0.015,-12);
+scene.add(path);
+
+// الشخصية
+const player = new THREE.Group();
+scene.add(player);
+
+const body = new THREE.Mesh(
+  new THREE.CylinderGeometry(.38,.45,1.15,12),
+  new THREE.MeshStandardMaterial({color:0x9a5634})
+);
+body.position.y=.95;
+body.castShadow=true;
+player.add(body);
+
+const head = new THREE.Mesh(
+  new THREE.SphereGeometry(.32,16,12),
+  new THREE.MeshStandardMaterial({color:0xe6b98e})
+);
+head.position.y=1.72;
+head.castShadow=true;
+player.add(head);
+
+const hair = new THREE.Mesh(
+  new THREE.SphereGeometry(.33,16,8,0,Math.PI*2,0,Math.PI/2),
+  new THREE.MeshStandardMaterial({color:0x30231b})
+);
+hair.position.y=1.84;
+player.add(hair);
+
+// الأرجل
+const legs=[];
+for(let i=0;i<2;i++){
+  const leg=new THREE.Mesh(
+    new THREE.CylinderGeometry(.13,.15,.65,8),
+    new THREE.MeshStandardMaterial({color:0x303e49})
+  );
+  leg.position.set(i===0?-.2:.2,.35,0);
+  leg.castShadow=true;
+  player.add(leg);
+  legs.push(leg);
+}
+
+player.position.set(0,0,8);
+
+// الأشجار
+function makeTree(x,z,size=1){
+  const tree=new THREE.Group();
+
+  const trunk=new THREE.Mesh(
+    new THREE.CylinderGeometry(.18*size,.28*size,2.5*size,8),
+    new THREE.MeshStandardMaterial({color:0x62432c})
+  );
+  trunk.position.y=1.25*size;
+  trunk.castShadow=true;
+  tree.add(trunk);
+
+  const leaves=new THREE.Mesh(
+    new THREE.ConeGeometry(1.25*size,3.5*size,9),
+    new THREE.MeshStandardMaterial({color:0x174b32})
+  );
+  leaves.position.y=3.3*size;
+  leaves.castShadow=true;
+  tree.add(leaves);
+
+  tree.position.set(x,0,z);
+  scene.add(tree);
+}
+
+// توزيع الغابة
+for(let i=0;i<65;i++){
+  const x=(Math.random()-.5)*75;
+  const z=-Math.random()*75+12;
+  if(Math.abs(x)<7) continue;
+  makeTree(x,z,.7+Math.random()*.8);
+}
+
+// الصخور
+for(let i=0;i<35;i++){
+  const rock=new THREE.Mesh(
+    new THREE.DodecahedronGeometry(.5+Math.random()*.7,0),
+    new THREE.MeshStandardMaterial({color:0x65746a})
+  );
+  rock.position.set(
+    (Math.random()-.5)*65,
+    .35,
+    -Math.random()*65
+  );
+  rock.rotation.set(Math.random(),Math.random(),Math.random());
+  rock.castShadow=true;
+  scene.add(rock);
+}
+
+// البلورات
+const crystals=[];
+const crystalMaterial=new THREE.MeshStandardMaterial({
+  color:0x52e9ff,
+  emissive:0x087eaa,
+  emissiveIntensity:1.7,
+  metalness:.35,
+  roughness:.2
+});
+
+for(let i=0;i<5;i++){
+  const crystal=new THREE.Mesh(
+    new THREE.OctahedronGeometry(.65),
+    crystalMaterial.clone()
+  );
+  crystal.position.set(
+    (Math.random()-.5)*7,
+    1.2,
+    -5-i*9
+  );
+  crystal.castShadow=true;
+  scene.add(crystal);
+  crystals.push(crystal);
+}
+
+// البوابة
+const portal=new THREE.Group();
+scene.add(portal);
+
+const ring=new THREE.Mesh(
+  new THREE.TorusGeometry(2,0.22,12,48),
+  new THREE.MeshStandardMaterial({
+    color:0x9e64ff,
+    emissive:0x5a19aa,
+    emissiveIntensity:2
+  })
+);
+ring.position.y=2;
+portal.add(ring);
+
+const portalLight=new THREE.PointLight(0x9c52ff,0,10);
+portalLight.position.y=2;
+portal.add(portalLight);
+
+portal.position.set(0,0,-53);
+
+// التحكم
+const keys={
+  forward:false,back:false,left:false,right:false
+};
+
+document.querySelectorAll("[data-key]").forEach(btn=>{
+  const key=btn.dataset.key;
+
+  btn.addEventListener("pointerdown",e=>{
+    e.preventDefault();
+    keys[key]=true;
+    btn.setPointerCapture(e.pointerId);
+  });
+
+  const stop=()=>{
+    keys[key]=false;
+  };
+
+  btn.addEventListener("pointerup",stop);
+  btn.addEventListener("pointercancel",stop);
+  btn.addEventListener("lostpointercapture",stop);
+});
+
+// لوحة المفاتيح
+window.addEventListener("keydown",e=>{
+  if(e.key==="ArrowUp"||e.key==="w")keys.forward=true;
+  if(e.key==="ArrowDown"||e.key==="s")keys.back=true;
+  if(e.key==="ArrowLeft"||e.key==="a")keys.left=true;
+  if(e.key==="ArrowRight"||e.key==="d")keys.right=true;
+});
+window.addEventListener("keyup",e=>{
+  if(e.key==="ArrowUp"||e.key==="w")keys.forward=false;
+  if(e.key==="ArrowDown"||e.key==="s")keys.back=false;
+  if(e.key==="ArrowLeft"||e.key==="a")keys.left=false;
+  if(e.key==="ArrowRight"||e.key==="d")keys.right=false;
+});
+
+// القفز
+let jumpVelocity=0;
+let jumping=false;
+
+document.getElementById("jump").addEventListener("pointerdown",()=>{
+  if(!jumping && started){
+    jumping=true;
+    jumpVelocity=7;
+  }
+});
+
+// حالة اللعبة
+let score=0;
+let started=false;
+let won=false;
+const clock=new THREE.Clock();
+
+document.getElementById("play").onclick=()=>{
+  document.getElementById("start").style.display="none";
+  started=true;
+};
+
+// حركة اللاعب
+function updatePlayer(dt){
+  if(!started || won)return;
+
+  let dx=0,dz=0;
+
+  if(keys.forward) dz-=1;
+  if(keys.back) dz+=1;
+  if(keys.left) dx-=1;
+  if(keys.right) dx+=1;
+
+  const moving=dx!==0||dz!==0;
+
+  if(moving){
+    const length=Math.hypot(dx,dz);
+    dx/=length; dz/=length;
+
+    player.position.x+=dx*7*dt;
+    player.position.z+=dz*7*dt;
+
+    player.rotation.y=Math.atan2(dx,dz);
+  }
+
+  player.position.x=THREE.MathUtils.clamp(player.position.x,-35,35);
+  player.position.z=THREE.MathUtils.clamp(player.position.z,-70,15);
+
+  if(jumping){
+    jumpVelocity-=18*dt;
+    player.position.y+=jumpVelocity*dt;
+
+    if(player.position.y<=0){
+      player.position.y=0;
+      jumping=false;
+      jumpVelocity=0;
+    }
+  }
+
+  legs.forEach((leg,i)=>{
+    leg.rotation.x=moving
+      ?Math.sin(clock.elapsedTime*11+i*Math.PI)*.6:0;
+  });
+}
+
+// الكاميرا
+function updateCamera(){
+  const offset=new THREE.Vector3(0,5.5,9);
+  const target=player.position.clone().add(offset);
+  camera.position.lerp(target,.09);
+  camera.lookAt(
+    player.position.x,
+    player.position.y+1.1,
+    player.position.z-2
+  );
+}
+
+// جمع البلورات
+function updateCrystals(dt){
+  crystals.forEach((crystal,index)=>{
+    if(!crystal.visible)return;
+
+    crystal.rotation.y+=dt*1.5;
+    crystal.position.y=1.2+Math.sin(clock.elapsedTime*2+index)*.2;
+
+    if(crystal.position.distanceTo(player.position)<1.6){
+      crystal.visible=false;
+      score++;
+      document.getElementById("score").textContent=score;
+
+      if(score===5){
+        portalLight.intensity=5;
+        document.getElementById("message").textContent=
+          "البوابة فتحت! اذهب إليها";
+      }
+    }
+  });
+}
+
+// البوابة
+function updatePortal(dt){
+  portal.rotation.y+=dt*.5;
+  if(score===5 &&
+     player.position.distanceTo(portal.position)<2.5){
+    won=true;
+    document.getElementById("message").textContent=
+      "🏆 أحسنت! أكملت المرحلة الأولى";
+  }
+}
+
+// الحلقة الرئيسية
+function animate(){
+  requestAnimationFrame(animate);
+
+  const dt=Math.min(clock.getDelta(),.04);
+
+  crystals.forEach(c=>{
+    if(c.visible)c.rotation.x+=dt*.4;
+  });
+
+  if(started){
+    updatePlayer(dt);
+    updateCrystals(dt);
+    updatePortal(dt);
+    updateCamera();
+  }
+
+  renderer.render(scene,camera);
+}
+
+// تغيير حجم الشاشة
+window.addEventListener("resize",()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+camera.position.set(0,6,17);
+camera.lookAt(0,1,0);
+
+animate();
+</script>
+</body>
+</html>
